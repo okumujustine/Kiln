@@ -1,6 +1,8 @@
 package buffer
 
-import "strings"
+import (
+	"strings"
+)
 
 type source uint8
 
@@ -44,4 +46,21 @@ func (pt *PieceTable) String() string {
 	}
 
 	return sb.String()
+}
+
+// Insert adds text at the given byte offset.
+func (pt *PieceTable) Insert(offset int, text []byte) {
+	originalLength := len(pt.original)
+
+	// Store the new text at the end of the add buffer.
+	addStart := len(pt.add) // where this text will begin inside add
+	pt.add = append(pt.add, text...)
+
+	// Build the three pieces.
+	left := piece{source: fromOriginal, start: 0, len: offset}
+	middle := piece{source: fromAdd, start: addStart, len: len(text)}
+	right := piece{source: fromOriginal, start: offset, len: originalLength - offset}
+
+	// Replace the old single piece with the three new ones.
+	pt.pieces = []piece{left, middle, right}
 }

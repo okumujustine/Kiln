@@ -27,3 +27,24 @@ func TestPieceTable_String(t *testing.T) {
 	}
 
 }
+
+func TestPieceTable_Insert(t *testing.T) {
+	testCases := []struct {
+		name  string
+		index int
+		input []byte
+		want  string
+	}{
+		{name: "Adds 'X' at index 1", index: 1, input: []byte("X"), want: "aXb\ncd\nef\n"},
+		{name: "Adds 'XYZ' at index 4", index: 4, input: []byte("XYZ"), want: "ab\ncXYZd\nef\n"},
+	}
+
+	for _, testCase := range testCases {
+		pt := buffer.New([]byte("ab\ncd\nef\n"))
+		pt.Insert(testCase.index, testCase.input)
+
+		t.Run(testCase.name, func(t *testing.T) {
+			assert.Equal(t, pt.String(), testCase.want)
+		})
+	}
+}
