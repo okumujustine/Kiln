@@ -57,30 +57,27 @@ func (e editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func main() {
 
-	if len(os.Args) <= 0 {
-		log.Fatal("No filename provided")
-		os.Exit(1)
+	if len(os.Args) < 2 {
+		log.Fatalln("No filename provided")
 	}
 	filename := os.Args[1]
 
 	file, err := os.Open(filename)
 	if err != nil {
-		log.Fatalf("Error reading file %v: ", err)
-		os.Exit(1)
+		log.Fatalln(err)
 	}
 	defer file.Close()
 
+	var lines []string
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		fmt.Println("New Line ::: ")
-		fmt.Println(scanner.Text())
+		lines = append(lines, scanner.Text())
 	}
 	if err := scanner.Err(); err != nil {
-		log.Fatalf("Error while scanning: %v", err)
-		os.Exit(1)
+		log.Fatalln(err)
 	}
 
-	app := tea.NewProgram(editor{top: 0})
+	app := tea.NewProgram(editor{lines: lines, filename: filename})
 
 	if _, err := app.Run(); err != nil {
 		fmt.Printf("Getting started: %v", err)
