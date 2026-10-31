@@ -15,7 +15,7 @@ func TestPieceTable_String(t *testing.T) {
 	}{
 		{name: "Normal Text", input: []byte("ab\ncd\nef\n"), want: "ab\ncd\nef\n"},
 		{name: "Empty Byte", input: []byte(""), want: ""},
-		{name: "Nil Inpu", input: nil, want: ""},
+		{name: "Nil Input", input: nil, want: ""},
 	}
 
 	for _, testCase := range testCases {
