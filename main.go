@@ -19,7 +19,8 @@ type editor struct {
 	lines            []string // the file's contents, one string per line
 	firstVisibleLine int      // index of the line shown at the top of the screen
 	terminalHeight   int      // total rows in the terminal, updated on resize
-	filename         string   // shown in the status bar
+	terminalWidth    int
+	filename         string // shown in the status bar
 }
 
 // textAreaHeight is how many rows are left for file text
@@ -57,7 +58,12 @@ func (e editor) View() tea.View {
 	}
 
 	textArea := lipgloss.NewStyle().Height(e.textAreaHeight())
-	return tea.NewView(textArea.Render(screen.String()))
+	text := textArea.Render(strings.TrimSuffix(screen.String(), "\n")) // trim last line which could add more spacing
+
+	statusBarArea := lipgloss.NewStyle().Height(statusBarHeight).Width(e.terminalWidth).Background(lipgloss.Color("#1b1f29")).Foreground(lipgloss.Color("#e5a54b"))
+	status := statusBarArea.Render(fmt.Sprintf("%s          line %d of %d", e.filename, e.firstVisibleLine+1, len(e.lines)))
+
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, text, status))
 }
 
 func (e editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -65,6 +71,8 @@ func (e editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		e.terminalHeight = msg.Height
+		e.terminalWidth = msg.Width
+		e.firstVisibleLine = min(e.maxFirstVisibleLine(), e.firstVisibleLine)
 
 	case tea.KeyPressMsg:
 		switch msg.String() {
