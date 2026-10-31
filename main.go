@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"log"
+	"os"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -53,6 +56,29 @@ func (e editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func main() {
+
+	if len(os.Args) <= 0 {
+		log.Fatal("No filename provided")
+		os.Exit(1)
+	}
+	filename := os.Args[1]
+
+	file, err := os.Open(filename)
+	if err != nil {
+		log.Fatalf("Error reading file %v: ", err)
+		os.Exit(1)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		fmt.Println("New Line ::: ")
+		fmt.Println(scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		log.Fatalf("Error while scanning: %v", err)
+		os.Exit(1)
+	}
 
 	app := tea.NewProgram(editor{top: 0})
 
