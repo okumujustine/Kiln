@@ -61,7 +61,13 @@ func (e editor) View() tea.View {
 	text := textArea.Render(strings.TrimSuffix(screen.String(), "\n")) // trim last line which could add more spacing
 
 	statusBarArea := lipgloss.NewStyle().Height(statusBarHeight).Width(e.terminalWidth).Background(lipgloss.Color("#1b1f29")).Foreground(lipgloss.Color("#e5a54b"))
-	status := statusBarArea.Render(fmt.Sprintf("%s          line %d of %d", e.filename, e.firstVisibleLine+1, len(e.lines)))
+
+	visibleLineNumber := e.firstVisibleLine + 1
+	lineLength := len(e.lines)
+	if lineLength <= 0 {
+		visibleLineNumber = 0
+	}
+	status := statusBarArea.Render(fmt.Sprintf("%s          line %d of %d", e.filename, visibleLineNumber, lineLength))
 
 	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, text, status))
 }

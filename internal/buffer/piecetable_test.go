@@ -1,0 +1,29 @@
+package buffer_test
+
+import (
+	"testing"
+
+	"github.com/okumujustine/kiln/internal/buffer"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestPieceTable_String(t *testing.T) {
+	testCases := []struct {
+		name  string
+		input []byte
+		want  string
+	}{
+		{name: "Normal Text", input: []byte("ab\ncd\nef\n"), want: "ab\ncd\nef\n"},
+		{name: "Empty Byte", input: []byte(""), want: ""},
+		{name: "Nil Input", input: nil, want: ""},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := buffer.New(testCase.input).String()
+			assert.Equal(t, testCase.want, got)
+		})
+
+	}
+
+}
