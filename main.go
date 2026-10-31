@@ -20,7 +20,7 @@ type editor struct {
 
 func (e editor) lastVisibleLine() int {
 	actualHeight := e.height - statusBarLine
-	windowEnd := e.top - actualHeight - 1 // subtract 1 as the line counting start at 0
+	windowEnd := (e.top + actualHeight) - 1 // subtract 1 as the line counting start at 0
 	fileEnd := len(e.lines) - 1
 
 	return min(windowEnd, fileEnd)
