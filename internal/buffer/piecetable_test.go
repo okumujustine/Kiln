@@ -19,7 +19,11 @@ func TestPieceTable_String(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		assert.Equal(t, testCase.want, buffer.New(testCase.input).String())
+		t.Run(testCase.name, func(t *testing.T) {
+			got := buffer.New(testCase.input).String()
+			assert.Equal(t, testCase.want, got)
+		})
+
 	}
 
 }
