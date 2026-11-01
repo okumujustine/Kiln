@@ -1,6 +1,7 @@
 package buffer
 
 import (
+	"slices"
 	"strings"
 )
 
@@ -48,19 +49,59 @@ func (pt *PieceTable) String() string {
 	return sb.String()
 }
 
-// Insert adds text at the given byte offset.
+// Insert puts new text into the document at the given position.
 func (pt *PieceTable) Insert(offset int, text []byte) {
-	originalLength := len(pt.original)
-
-	// Store the new text at the end of the add buffer.
-	addStart := len(pt.add) // where this text will begin inside add
+	// New text always goes at the end of the add buffer, no matter
+	// where it shows up in the document. We note where it starts
+	// so a piece can point at it.
+	addStart := len(pt.add)
 	pt.add = append(pt.add, text...)
-
-	// Build the three pieces.
-	left := piece{source: fromOriginal, start: 0, len: offset}
 	middle := piece{source: fromAdd, start: addStart, len: len(text)}
-	right := piece{source: fromOriginal, start: offset, len: originalLength - offset}
 
-	// Replace the old single piece with the three new ones.
-	pt.pieces = []piece{left, middle, right}
+	// Figure out which piece the cursor is sitting in,
+	// and how far into that piece it is.
+	index, k := pt.findPiece(offset)
+
+	// The cursor is past the last piece, so we're typing at the very
+	// end of the file. Nothing to split, just tack the new piece on.
+	if index == len(pt.pieces) {
+		pt.pieces = append(pt.pieces, middle)
+		return
+	}
+
+	// The cursor landed inside a piece, so we cut that piece in two:
+	// everything before the cursor, and everything after it.
+	old := pt.pieces[index]
+	left := piece{source: old.source, start: old.start, len: k}
+	right := piece{source: old.source, start: old.start + k, len: old.len - k}
+
+	// Line them up: before, new text, after.
+	// If the cursor was right at the start of the piece, there's nothing
+	// "before", and if it was right at the end, there's nothing "after".
+	// We leave those empty bits out instead of keeping useless pieces.
+	replacement := []piece{}
+	if left.len > 0 {
+		replacement = append(replacement, left)
+	}
+	replacement = append(replacement, middle)
+	if right.len > 0 {
+		replacement = append(replacement, right)
+	}
+
+	// Swap the old piece out for the new ones.
+	// Every other piece stays exactly where it was.
+	pt.pieces = slices.Replace(pt.pieces, index, index+1, replacement...)
+}
+
+// findPiece returns the index of the piece containing offset,
+// and k: how far into that piece the offset is.
+func (pt *PieceTable) findPiece(offset int) (index int, k int) {
+	pos := 0 // document offset where the current piece starts
+	for i, p := range pt.pieces {
+		if offset < (pos + p.len) {
+			return i, offset - pos
+		}
+		pos += p.len // skip past this piece
+	}
+	return len(pt.pieces), 0 // offset is at the very end of the document
 }

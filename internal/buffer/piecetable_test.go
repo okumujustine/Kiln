@@ -48,3 +48,52 @@ func TestPieceTable_Insert(t *testing.T) {
 		})
 	}
 }
+
+func TestPieceTable_InsertMultiple(t *testing.T) {
+	type insert struct {
+		offset int
+		text   string
+	}
+
+	testCases := []struct {
+		name    string
+		inserts []insert
+		want    string
+	}{
+		{
+			name:    "two inserts in different pieces",
+			inserts: []insert{{1, "X"}, {8, "Z"}},
+			want:    "aXb\ncd\neZf\n",
+		},
+		{
+			name:    "insert at end of document",
+			inserts: []insert{{9, "Z"}},
+			want:    "ab\ncd\nef\nZ",
+		},
+		{
+			name:    "insert at start of document",
+			inserts: []insert{{0, "Z"}},
+			want:    "Zab\ncd\nef\n",
+		},
+		{
+			name:    "insert at a piece boundary",
+			inserts: []insert{{1, "X"}, {2, "Y"}},
+			want:    "aXYb\ncd\nef\n",
+		},
+		{
+			name:    "insert before an earlier insert",
+			inserts: []insert{{4, "X"}, {1, "Y"}},
+			want:    "aYb\ncXd\nef\n",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			pt := buffer.New([]byte("ab\ncd\nef\n"))
+			for _, ins := range testCase.inserts {
+				pt.Insert(ins.offset, []byte(ins.text))
+			}
+			assert.Equal(t, testCase.want, pt.String())
+		})
+	}
+}
