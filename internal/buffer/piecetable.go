@@ -24,15 +24,22 @@ type PieceTable struct {
 	add      []byte
 	pieces   []piece
 
-	// Where each line starts in the document, worked out on demand.
-	// Any edit marks it out of date, and the next read rebuilds it.
-	lineStarts     []int
+	// size is the document length in bytes, kept up to date on every edit
+	// so we never have to add up all the pieces to find it.
+	size int
+
+	// lineBreaks holds the offset just after every "\n" in the document,
+	// in order. Line 0 starts at 0, and line i starts at lineBreaks[i-1].
+	// It's built the first time someone asks for lines, and from then on
+	// every Insert and Delete patches it instead of rebuilding it.
+	lineBreaks     []int
 	lineIndexValid bool
 }
 
 func New(original []byte) *PieceTable {
 	return &PieceTable{
 		original: original,
+		size:     len(original),
 		pieces: []piece{
 			piece{source: fromOriginal, start: 0, len: len(original)},
 		},
@@ -59,17 +66,15 @@ func (pt *PieceTable) bytesOf(p piece) []byte {
 
 // Len is the size of the whole document in bytes.
 func (pt *PieceTable) Len() int {
-	total := 0
-	for _, p := range pt.pieces {
-		total += p.len
-	}
-	return total
+	return pt.size
 }
 
 // Insert puts new text into the document at the given position.
 func (pt *PieceTable) Insert(offset int, text []byte) {
-	// The text is about to change, so the line index is out of date.
-	pt.lineIndexValid = false
+	// Patch the line index and the size before the pieces change.
+	offset = min(offset, pt.size) // inserting past the end means inserting at the end
+	pt.updateLinesForInsert(offset, text)
+	pt.size += len(text)
 
 	// New text always goes at the end of the add buffer, no matter
 	// where it shows up in the document. We note where it starts
@@ -141,8 +146,12 @@ func (pt *PieceTable) Delete(offset, length int) {
 		return
 	}
 
-	// The text is about to change, so the line index is out of date.
-	pt.lineIndexValid = false
+	// A delete can't run past the end of the document.
+	length = min(length, pt.size-offset)
+
+	// Patch the line index and the size before the pieces change.
+	pt.updateLinesForDelete(offset, length)
+	pt.size -= length
 
 	// Find the piece where the delete stops.
 	endIndex, endK := pt.findPiece(offset + length)
@@ -202,17 +211,13 @@ func (pt *PieceTable) readRange(from, to int) string {
 	return sb.String()
 }
 
-// buildLineIndex scans the document once and records where every line starts.
+// buildLineIndex scans the document once and records every line break.
+// It only runs the first time lines are needed; after that, edits keep
+// the index up to date themselves.
 func (pt *PieceTable) buildLineIndex() {
-	pt.lineStarts = pt.lineStarts[:0] // reuse the old slice's memory
+	pt.lineBreaks = pt.lineBreaks[:0] // reuse the old slice's memory
 	pt.lineIndexValid = true
 
-	total := pt.Len()
-	if total == 0 {
-		return // an empty document has no lines
-	}
-
-	pt.lineStarts = append(pt.lineStarts, 0) // the first line always starts at 0
 	pos := 0
 	for _, p := range pt.pieces {
 		buf := pt.bytesOf(p)
@@ -224,43 +229,107 @@ func (pt *PieceTable) buildLineIndex() {
 			if i < 0 {
 				break
 			}
-			nextLineStart := pos + searched + i + 1
-			// A newline at the very end of the file doesn't start a new line.
-			if nextLineStart < total {
-				pt.lineStarts = append(pt.lineStarts, nextLineStart)
-			}
+			pt.lineBreaks = append(pt.lineBreaks, pos+searched+i+1)
 			searched += i + 1
 		}
 		pos += p.len
 	}
 }
 
-// ensureLineIndex rebuilds the index only if an edit made it stale.
+// ensureLineIndex builds the index if nobody has asked for lines yet.
 func (pt *PieceTable) ensureLineIndex() {
 	if !pt.lineIndexValid {
 		pt.buildLineIndex()
 	}
 }
 
+// firstBreakAfter finds the first line break that comes after offset.
+// lineBreaks is sorted, so a binary search finds it in about 20 steps
+// even for a million lines.
+func (pt *PieceTable) firstBreakAfter(offset int) int {
+	i, found := slices.BinarySearch(pt.lineBreaks, offset)
+	if found {
+		i++ // a break exactly at offset is "at", not "after"
+	}
+	return i
+}
+
+// updateLinesForInsert patches the line index for text inserted at offset.
+func (pt *PieceTable) updateLinesForInsert(offset int, text []byte) {
+	if !pt.lineIndexValid {
+		return // no index yet; it will be built from scratch when needed
+	}
+
+	// Breaks at or before the insert point don't move.
+	// Every break after it moves right by the length of the new text.
+	i := pt.firstBreakAfter(offset)
+	for j := i; j < len(pt.lineBreaks); j++ {
+		pt.lineBreaks[j] += len(text)
+	}
+
+	// Any newlines inside the new text are new line breaks.
+	// They all land between the breaks before and after the insert point.
+	var added []int
+	searched := 0
+	for {
+		n := bytes.IndexByte(text[searched:], '\n')
+		if n < 0 {
+			break
+		}
+		added = append(added, offset+searched+n+1)
+		searched += n + 1
+	}
+	pt.lineBreaks = slices.Insert(pt.lineBreaks, i, added...)
+}
+
+// updateLinesForDelete patches the line index for length bytes removed at offset.
+func (pt *PieceTable) updateLinesForDelete(offset, length int) {
+	if !pt.lineIndexValid {
+		return
+	}
+
+	// Breaks that came from a newline inside the deleted range disappear.
+	// A newline at position p gives a break at p+1, so those are the
+	// breaks after offset and up to offset+length.
+	from := pt.firstBreakAfter(offset)
+	to := pt.firstBreakAfter(offset + length)
+	pt.lineBreaks = slices.Delete(pt.lineBreaks, from, to)
+
+	// Every break after the deleted range moves left by its length.
+	for j := from; j < len(pt.lineBreaks); j++ {
+		pt.lineBreaks[j] -= length
+	}
+}
+
 // LineCount is how many lines the document has.
 func (pt *PieceTable) LineCount() int {
 	pt.ensureLineIndex()
-	return len(pt.lineStarts)
+	if pt.size == 0 {
+		return 0 // an empty document has no lines
+	}
+	count := len(pt.lineBreaks) + 1
+	// A newline at the very end of the file doesn't start a new line.
+	if len(pt.lineBreaks) > 0 && pt.lineBreaks[len(pt.lineBreaks)-1] == pt.size {
+		count--
+	}
+	return count
 }
 
 // Line returns the text of line i, without its newline.
 func (pt *PieceTable) Line(i int) string {
-	pt.ensureLineIndex()
-	if i < 0 || i >= len(pt.lineStarts) {
+	if i < 0 || i >= pt.LineCount() {
 		return ""
 	}
 
-	// A line runs from its own start to where the next line starts.
-	// The last line runs to the end of the document.
-	start := pt.lineStarts[i]
-	end := pt.Len()
-	if i+1 < len(pt.lineStarts) {
-		end = pt.lineStarts[i+1]
+	// Line 0 starts at the top; every other line starts just after a break.
+	// A line ends where the next one starts, or at the end of the document.
+	start := 0
+	if i > 0 {
+		start = pt.lineBreaks[i-1]
+	}
+	end := pt.size
+	if i < len(pt.lineBreaks) {
+		end = pt.lineBreaks[i]
 	}
 
 	line := pt.readRange(start, end)
