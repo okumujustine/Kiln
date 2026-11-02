@@ -1,7 +1,9 @@
 package buffer_test
 
 import (
+	"math/rand/v2"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/okumujustine/kiln/internal/buffer"
@@ -198,5 +200,57 @@ func TestPieceTable_Lines(t *testing.T) {
 			}
 			assert.Equal(t, testCase.want, got)
 		})
+	}
+}
+
+// splitLines is the slow, obviously-correct way to get lines from text.
+// The randomized test below checks the line index against it.
+func splitLines(text string) []string {
+	if text == "" {
+		return nil
+	}
+	lines := strings.Split(text, "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1] // a newline at the very end doesn't start a new line
+	}
+	for i := range lines {
+		lines[i] = strings.TrimSuffix(lines[i], "\r")
+	}
+	return lines
+}
+
+// TestPieceTable_LinesStayCorrectAfterRandomEdits makes thousands of random
+// inserts and deletes and, after every one, checks that the incrementally
+// updated line index matches a fresh split of the whole text.
+func TestPieceTable_LinesStayCorrectAfterRandomEdits(t *testing.T) {
+	rng := rand.New(rand.NewPCG(1, 2)) // fixed seed, so a failure is repeatable
+	snippets := []string{"x", "hello", "\n", "a\nb", "\n\n", "end\n", "\r\n", ""}
+
+	for round := 0; round < 50; round++ {
+		pt := buffer.New([]byte("ab\ncd\nef\n"))
+		pt.LineCount() // build the index now, so every edit below has to patch it
+
+		for step := 0; step < 200; step++ {
+			size := len(pt.String())
+			if rng.IntN(3) > 0 || size == 0 {
+				offset := rng.IntN(size + 1)
+				pt.Insert(offset, []byte(snippets[rng.IntN(len(snippets))]))
+			} else {
+				offset := rng.IntN(size)
+				pt.Delete(offset, rng.IntN(size-offset+3)) // sometimes runs past the end
+			}
+
+			want := splitLines(pt.String())
+			var got []string
+			for i := 0; i < pt.LineCount(); i++ {
+				got = append(got, pt.Line(i))
+			}
+			if !slices.Equal(got, want) {
+				t.Fatalf("round %d step %d: lines = %q, want %q", round, step, got, want)
+			}
+			if pt.Len() != len(pt.String()) {
+				t.Fatalf("round %d step %d: Len() = %d, want %d", round, step, pt.Len(), len(pt.String()))
+			}
+		}
 	}
 }
