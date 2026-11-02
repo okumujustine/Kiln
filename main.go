@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"log"
 	"os"
@@ -9,6 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
+
+	"github.com/okumujustine/kiln/internal/buffer"
 )
 
 // The status bar takes up one row at the bottom of the screen.
@@ -16,9 +17,9 @@ const statusBarHeight = 1
 
 // editor holds everything the screen needs to draw itself.
 type editor struct {
-	lines            []string // the file's contents, one string per line
-	firstVisibleLine int      // index of the line shown at the top of the screen
-	terminalHeight   int      // total rows in the terminal, updated on resize
+	doc              *buffer.PieceTable // the file's contents
+	firstVisibleLine int                // index of the line shown at the top of the screen
+	terminalHeight   int                // total rows in the terminal, updated on resize
 	terminalWidth    int
 	filename         string // shown in the status bar
 }
@@ -34,14 +35,14 @@ func (e editor) textAreaHeight() int {
 // or the end of the file.
 func (e editor) lastVisibleLine() int {
 	bottomOfScreen := e.firstVisibleLine + e.textAreaHeight() - 1 // -1 because indexes start at 0
-	lastLineOfFile := len(e.lines) - 1                            // -1 because indexes start at 0
+	lastLineOfFile := e.doc.LineCount() - 1                       // -1 because indexes start at 0
 	return min(bottomOfScreen, lastLineOfFile)
 }
 
 // maxFirstVisibleLine is the furthest we can scroll down while
 // keeping the screen full. It is 0 when the whole file fits.
 func (e editor) maxFirstVisibleLine() int {
-	return max(0, len(e.lines)-e.textAreaHeight())
+	return max(0, e.doc.LineCount()-e.textAreaHeight())
 }
 
 func (e editor) Init() tea.Cmd {
@@ -54,7 +55,7 @@ func (e editor) View() tea.View {
 
 	for lineIndex := e.firstVisibleLine; lineIndex <= lastLine; lineIndex++ {
 		lineNumber := lineIndex + 1 // people count lines from 1
-		fmt.Fprintf(&screen, "%4d  %s\n", lineNumber, e.lines[lineIndex])
+		fmt.Fprintf(&screen, "%4d  %s\n", lineNumber, e.doc.Line(lineIndex))
 	}
 
 	textArea := lipgloss.NewStyle().Height(e.textAreaHeight())
@@ -63,7 +64,7 @@ func (e editor) View() tea.View {
 	statusBarArea := lipgloss.NewStyle().Height(statusBarHeight).Width(e.terminalWidth).Background(lipgloss.Color("#1b1f29")).Foreground(lipgloss.Color("#e5a54b"))
 
 	visibleLineNumber := e.firstVisibleLine + 1
-	lineLength := len(e.lines)
+	lineLength := e.doc.LineCount()
 	if lineLength <= 0 {
 		visibleLineNumber = 0
 	}
@@ -97,34 +98,18 @@ func (e editor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return e, nil
 }
 
-// readLines loads a file and returns its contents as a slice of lines.
-func readLines(filename string) ([]string, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close() // runs when readLines returns, so the file is closed right after reading
-
-	var lines []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
-	return lines, scanner.Err()
-}
-
 func main() {
 	if len(os.Args) < 2 {
 		log.Fatalln("usage: kiln <filename>")
 	}
 	filename := os.Args[1]
 
-	lines, err := readLines(filename)
+	data, err := os.ReadFile(filename)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	app := tea.NewProgram(editor{lines: lines, filename: filename})
+	app := tea.NewProgram(editor{doc: buffer.New(data), filename: filename})
 	if _, err := app.Run(); err != nil {
 		log.Fatalln(err)
 	}
